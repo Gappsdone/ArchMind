@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(ArchMindCycle LANGUAGES CXX)
+add_library(A STATIC a.cpp)
+add_library(B STATIC b.cpp)
+target_link_libraries(A PRIVATE B)
+target_link_libraries(B PRIVATE A)

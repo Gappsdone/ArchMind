@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(ArchMindFixture LANGUAGES CXX)
+add_subdirectory(math)
+add_subdirectory(physics)
+add_subdirectory(simulation)
+add_subdirectory(app)

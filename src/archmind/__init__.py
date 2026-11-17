@@ -1,0 +1,1 @@
+"""ArchMind architecture index."""
