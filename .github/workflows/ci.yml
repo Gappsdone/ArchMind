@@ -19,7 +19,7 @@ jobs:
       - name: Format
         run: ruff format --check src tests
       - name: Test real CMake fixtures
-        run: pytest -q
+        run: python scripts/ci_pytest.py
       - name: Build wheel
         run: python -m pip wheel --no-deps -w dist .
 
