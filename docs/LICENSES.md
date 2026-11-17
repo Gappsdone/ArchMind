@@ -1,6 +1,6 @@
 # Resolved Python dependency SPDX inventory
 
-Generated from the M1 development environment and `uv.lock` on 2026-11-17 with `pip-licenses`. Runtime and development dependencies are included. License labels were normalized to SPDX where metadata used prose. This inventory does not replace review of license notices for release redistribution. ArchMind itself has no granted license; Apache-2.0 is proposed pending owner approval.
+Generated from the M1 development environment and `uv.lock` on 2026-11-17 with `pip-licenses`. Runtime and development dependencies are included. License labels were normalized to SPDX where metadata used prose. This inventory does not replace review of license notices for release redistribution. ArchMind itself is licensed Apache-2.0 with owner approval (2026-11-17).
 
 | Package | Pinned version | SPDX license |
 |---|---:|---|
@@ -38,3 +38,7 @@ Generated from the M1 development environment and `uv.lock` on 2026-11-17 with `
 | uvicorn | 0.54.0 | BSD-3-Clause |
 
 External FOSS tools used during M1: CMake (BSD-3-Clause), Ninja (Apache-2.0), uv (Apache-2.0 OR MIT), Git (GPL-2.0-only). Verify installed tool licenses in target distributions.
+
+## Frontend resolved package licenses
+
+The M2 npm lockfile contains React 19.3.1, React DOM 19.3.1, Cytoscape 3.35.0, esbuild 0.28.2 and associated platform binaries (MIT); TypeScript 5.9.3 and Playwright 1.65.1 (Apache-2.0); and MIT-licensed type packages. See `frontend/package-lock.json` for the full version tree. `npm audit` reported zero advisories on 2026-11-17. The bundled runtime JavaScript contains React, React DOM, scheduler and Cytoscape; their full license notices ship in `src/archmind/web/THIRD_PARTY_NOTICES.txt`.

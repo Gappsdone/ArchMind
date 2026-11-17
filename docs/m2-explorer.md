@@ -1,0 +1,9 @@
+# M2 target explorer
+
+The React/TypeScript/Cytoscape frontend uses the existing versioned API; it never opens SQLite. `GET /api/v1/snapshots/{id}/subgraph` provides a stable-key ordered first page (100 targets by default, at most 200) or a bounded incoming/outgoing target neighborhood (`center_id`, depth 0–2). Results include only edges whose endpoints are returned, with at most 500 edges. `next_cursor` pages the overview. `truncated` flags a bounded result. Target search uses the existing paginated node query and expands the selected match.
+
+The explorer distinguishes dashed CMake build-order dependencies from solid, provenance-verified link edges. Build-order edges may include transitive relationships; M1 cannot classify their directness reliably. SCC cycle highlighting uses `/cycles` and highlights edges only when both endpoints share one SCC. Containment/file ownership edges are not shown in this target-level view.
+
+An edge selection is retained in UI state as `{snapshotId, edgeId, sourceId, targetId, relationship}` until another edge or snapshot is chosen. The inspector calls the edge-evidence API and does not infer missing lines. Source links call a read-only excerpt endpoint. The backend resolves the requested path inside the registered project root, blocks `..` and symlink escapes, limits files to 1 MB, and returns up to 20 context lines each side. There is no arbitrary file-browser or command endpoint.
+
+The Python service serves bundled JavaScript and CSS at `/assets` and an in-memory HTML shell at `/`. No separate frontend server is required for use. M2 includes a browser smoke test that selects an edge, opens evidence/source, filters relationships, and searches a target. It does not yet implement package/class drill-down (M3), AI conversation (M4), or refactoring review (M5). Large-graph interactivity beyond the bounded 200-node viewport remains a product-scale validation task.

@@ -9,7 +9,7 @@ Status: Accepted for M1 (2026-11-17)
 - Algorithms: iterative Kosaraju SCC includes self-loops and avoids Python recursion limits.
 - Paths: project roots are resolved on registration; build directories must stay inside root. Source paths from File API are read-only metadata. Service listens on loopback by default.
 - Reproducibility: capture CMake version, generator, configuration, Git commit when present, and adapter version; do not persist environment variables.
-- License: required runtime and development packages are FOSS. Project license remains undecided; Apache-2.0 is proposed, not granted. A release must include a full transitive SPDX audit.
+- License: required runtime and development packages are FOSS. Project license was approved as Apache-2.0 on 2026-11-17. A release must include a full transitive SPDX audit.
 
 ## Known M1 deviations and next work
 

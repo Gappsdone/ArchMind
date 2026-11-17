@@ -1,0 +1,27 @@
+{
+  "name": "archmind-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.tsx --bundle --minify --format=esm --target=es2022 --outdir=../src/archmind/web",
+    "watch": "esbuild src/main.tsx --bundle --format=esm --target=es2022 --outdir=../src/archmind/web --watch",
+    "test": "esbuild tests/app.test.ts --bundle --platform=node --format=esm --packages=external --outfile=tests/.compiled.mjs && node --test tests/.compiled.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "cytoscape": "3.35.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/cytoscape": "^3.21.9",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.3"
+  }
+}

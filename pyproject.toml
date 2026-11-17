@@ -4,9 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archmind"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first CMake architecture intelligence"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = ["alembic>=1.15,<2", "fastapi>=0.115,<1", "pydantic>=2,<3", "typer>=0.15,<1", "uvicorn>=0.34,<1"]
 
 [project.optional-dependencies]
@@ -29,4 +30,4 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.setuptools.package-data]
-archmind = ["migrations/env.py", "migrations/versions/*.py"]
+archmind = ["migrations/env.py", "migrations/versions/*.py", "web/*.js", "web/*.css", "web/*.txt"]

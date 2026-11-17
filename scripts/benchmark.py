@@ -43,6 +43,12 @@ with tempfile.TemporaryDirectory() as temp:
     start = time.perf_counter()
     cycles = db.cycles(sid)
     scc_seconds = time.perf_counter() - start
+    start = time.perf_counter()
+    overview = db.subgraph(sid, limit=200)
+    overview_ms = (time.perf_counter() - start) * 1000
+    start = time.perf_counter()
+    neighborhood = db.subgraph(sid, center_id=ids[0], depth=2, limit=200)
+    neighborhood_ms = (time.perf_counter() - start) * 1000
     peak = "unavailable"
     status = Path("/proc/self/status")
     if os.name == "posix" and status.is_file():
@@ -56,4 +62,8 @@ with tempfile.TemporaryDirectory() as temp:
         )
     print(
         f"nodes=10000 edges=50000 import_s={import_seconds:.3f} direct_p95_ms={statistics.quantiles(times, n=20)[18]:.3f} scc_s={scc_seconds:.3f} cycles={len(cycles)} peak_rss={peak}"
+    )
+    print(
+        f"overview_ms={overview_ms:.3f} overview_nodes={len(overview['nodes'])} "
+        f"neighborhood_ms={neighborhood_ms:.3f} neighborhood_nodes={len(neighborhood['nodes'])}"
     )

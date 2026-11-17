@@ -1,0 +1,2 @@
+# Bundled Cytoscape shader strings contain intentional trailing spaces.
+src/archmind/web/main.js -diff whitespace=-blank-at-eol

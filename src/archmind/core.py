@@ -311,6 +311,130 @@ class Store:
             "diagnostics": [] if records else ["No source provenance available"],
         }
 
+    def subgraph(
+        self,
+        snapshot_id: str,
+        center_id: str | None = None,
+        depth: int = 1,
+        limit: int = 100,
+        cursor: str | None = None,
+        kind: str | None = None,
+    ) -> dict:
+        """Return a bounded target-only overview or neighborhood."""
+        if not 1 <= limit <= 200 or not 0 <= depth <= 2:
+            raise ValueError("Subgraph limit/depth outside supported bounds")
+        if kind not in (None, "BUILD_DEPENDS_ON", "LINKS_TO"):
+            raise ValueError("Unsupported subgraph edge kind")
+        kinds = (kind,) if kind else ("BUILD_DEPENDS_ON", "LINKS_TO")
+        placeholders = ",".join("?" for _ in kinds)
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            if center_id is None:
+                rows = db.execute(
+                    "SELECT id,kind,name,stable_key FROM nodes "
+                    "WHERE snapshot_id=? AND kind='CMAKE_TARGET' AND stable_key>? "
+                    "ORDER BY stable_key LIMIT ?",
+                    (snapshot_id, cursor or "", limit + 1),
+                ).fetchall()
+                selected = {row["id"] for row in rows[:limit]}
+                next_cursor = rows[limit - 1]["stable_key"] if len(rows) > limit else None
+                truncated = next_cursor is not None
+            else:
+                row = db.execute(
+                    "SELECT id FROM nodes WHERE snapshot_id=? AND id=? AND kind='CMAKE_TARGET'",
+                    (snapshot_id, center_id),
+                ).fetchone()
+                if row is None:
+                    raise NotFound("Center target not found")
+                selected = {center_id}
+                frontier = {center_id}
+                truncated = False
+                next_cursor = None
+                for _ in range(depth):
+                    if not frontier:
+                        break
+                    marks = ",".join("?" for _ in frontier)
+                    adjacent = db.execute(
+                        f"SELECT e.source_id,e.target_id FROM edges e "
+                        f"JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                        f"WHERE e.snapshot_id=? AND e.kind IN ({placeholders}) "
+                        f"AND s.kind='CMAKE_TARGET' AND t.kind='CMAKE_TARGET' "
+                        f"AND (e.source_id IN ({marks}) OR e.target_id IN ({marks})) "
+                        "ORDER BY e.id LIMIT 1001",
+                        (snapshot_id, *kinds, *sorted(frontier), *sorted(frontier)),
+                    ).fetchall()
+                    next_frontier = set()
+                    if len(adjacent) > 1000:
+                        truncated = True
+                    for edge in adjacent[:1000]:
+                        for node_id in (edge["source_id"], edge["target_id"]):
+                            if node_id not in selected:
+                                if len(selected) >= limit:
+                                    truncated = True
+                                    continue
+                                selected.add(node_id)
+                                next_frontier.add(node_id)
+                    frontier = next_frontier
+            if not selected:
+                return {
+                    "nodes": [],
+                    "edges": [],
+                    "next_cursor": next_cursor,
+                    "truncated": truncated,
+                }
+            marks = ",".join("?" for _ in selected)
+            nodes = [
+                dict(row)
+                for row in db.execute(
+                    f"SELECT id,kind,name,stable_key FROM nodes WHERE snapshot_id=? AND id IN ({marks}) ORDER BY stable_key",
+                    (snapshot_id, *sorted(selected)),
+                )
+            ]
+            edge_rows = db.execute(
+                f"SELECT e.id,e.source_id,e.target_id,e.kind,e.origin,COUNT(v.id) evidence_count "
+                f"FROM edges e LEFT JOIN evidence v ON v.edge_id=e.id "
+                f"WHERE e.snapshot_id=? AND e.kind IN ({placeholders}) "
+                f"AND e.source_id IN ({marks}) AND e.target_id IN ({marks}) "
+                "GROUP BY e.id ORDER BY e.id LIMIT 501",
+                (snapshot_id, *kinds, *sorted(selected), *sorted(selected)),
+            ).fetchall()
+            if len(edge_rows) > 500:
+                truncated = True
+            edges = [dict(row) for row in edge_rows[:500]]
+        return {"nodes": nodes, "edges": edges, "next_cursor": next_cursor, "truncated": truncated}
+
+    def source_excerpt(
+        self, snapshot_id: str, relative_path: str, line: int = 1, context: int = 5
+    ) -> dict:
+        """Read a small source excerpt, never a path outside the registered project."""
+        if not 0 <= context <= 20 or line < 1:
+            raise ValueError("Invalid source line or context")
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            record = db.execute(
+                "SELECT p.root_path FROM snapshots s JOIN projects p ON p.id=s.project_id WHERE s.id=?",
+                (snapshot_id,),
+            ).fetchone()
+        root = Path(record["root_path"]).resolve()
+        requested = Path(relative_path)
+        if requested.is_absolute() or ".." in requested.parts:
+            raise ValueError("Source path must be project-relative")
+        path = (root / requested).resolve(strict=True)
+        if root not in path.parents or not path.is_file():
+            raise ValueError("Source path is outside the project or not a file")
+        if path.stat().st_size > 1_000_000:
+            raise ValueError("Source file exceeds preview size limit")
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line > max(1, len(lines)):
+            raise ValueError("Source line is outside the file")
+        first = max(1, line - context)
+        last = min(len(lines), line + context)
+        return {
+            "path": path.relative_to(root).as_posix(),
+            "requested_line": line,
+            "lines": [{"number": n, "text": lines[n - 1]} for n in range(first, last + 1)],
+        }
+
     def cycles(self, snapshot_id: str, kind: str = "BUILD_DEPENDS_ON") -> list[list[str]]:
         with self.connect() as db:
             self._snapshot(db, snapshot_id)

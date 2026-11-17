@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .core import NotFound, Store
@@ -28,7 +28,29 @@ class AnalysisInput(BaseModel):
 
 def create_app(database: Path | None = None) -> FastAPI:
     store = Store(database or Path(os.getenv("ARCHMIND_DB", "archmind.db")))
-    app = FastAPI(title="ArchMind", version="0.1.0")
+    app = FastAPI(title="ArchMind", version="0.2.0")
+    web = Path(__file__).parent / "web"
+
+    @app.get("/", include_in_schema=False)
+    def explorer():
+        return HTMLResponse(
+            '<!doctype html><html lang="en"><head><meta charset="UTF-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<title>ArchMind</title><link rel="stylesheet" href="/assets/main.css">'
+            '</head><body><div id="root"></div><script type="module" src="/assets/main.js">'
+            "</script></body></html>",
+            headers={
+                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:"
+            },
+        )
+
+    @app.get("/assets/{filename}", include_in_schema=False)
+    def assets(filename: str):
+        if filename not in {"main.js", "main.css"} or not (web / filename).is_file():
+            raise NotFound("Asset not found")
+        return FileResponse(
+            web / filename, media_type="text/javascript" if filename.endswith(".js") else "text/css"
+        )
 
     @app.exception_handler(NotFound)
     async def missing(_request, exc: NotFound):
@@ -117,8 +139,31 @@ def create_app(database: Path | None = None) -> FastAPI:
             raise ValueError("Cycles require BUILD_DEPENDS_ON or LINKS_TO")
         return {"items": store.cycles(snapshot_id, kind)}
 
+    @app.get("/api/v1/snapshots/{snapshot_id}/subgraph")
+    def subgraph(
+        snapshot_id: str,
+        center_id: str | None = None,
+        depth: int = Query(1, ge=0, le=2),
+        limit: int = Query(100, ge=1, le=200),
+        cursor: str | None = None,
+        kind: str | None = None,
+    ):
+        return store.subgraph(snapshot_id, center_id, depth, limit, cursor, kind)
+
     @app.get("/api/v1/snapshots/{snapshot_id}/edges/{edge_id}/evidence")
     def evidence(snapshot_id: str, edge_id: str):
         return store.evidence(snapshot_id, edge_id)
+
+    @app.get("/api/v1/snapshots/{snapshot_id}/source")
+    def source(
+        snapshot_id: str,
+        path: str,
+        line: int = Query(1, ge=1),
+        context: int = Query(5, ge=0, le=20),
+    ):
+        try:
+            return store.source_excerpt(snapshot_id, path, line, context)
+        except OSError as exc:
+            raise NotFound("Source file not found") from exc
 
     return app
