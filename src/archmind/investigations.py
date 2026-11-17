@@ -180,7 +180,7 @@ class Investigations:
             turns = [
                 dict(turn)
                 for turn in db.execute(
-                    "SELECT id,role,content_json,created_at FROM investigation_turns WHERE investigation_id=? ORDER BY created_at,id",
+                    "SELECT id,role,content_json,created_at FROM investigation_turns WHERE investigation_id=? ORDER BY rowid",
                     (investigation_id,),
                 )
             ]

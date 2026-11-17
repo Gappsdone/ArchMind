@@ -91,7 +91,9 @@ def test_investigation_context_immutability_and_no_model(graph):
     assert client.get("/api/v1/investigations/missing").status_code == 404
 
 
-def test_local_model_reply_validation_and_followups(graph):
+def test_local_model_reply_validation_and_followups(graph, monkeypatch):
+    # Windows clocks can give adjacent inserts the same timestamp.
+    monkeypatch.setattr("archmind.investigations._now", lambda: "same-timestamp")
     db, project, snapshot, *_ = graph
     selection = _selection(db, project, snapshot)
     evidence = db.evidence(snapshot["id"], selection["edge_id"])["evidence"]
@@ -147,6 +149,12 @@ def test_local_model_reply_validation_and_followups(graph):
     assert len(calls[1]["messages"]) > len(calls[0]["messages"])
     persisted = api.get(f"/api/v1/investigations/{iid}").json()
     assert len(persisted["turns"]) == 4
+    assert [turn["role"] for turn in persisted["turns"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
     assert persisted["turns"][0]["content"] == "Explain this"
 
 
