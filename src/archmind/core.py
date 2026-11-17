@@ -237,6 +237,19 @@ class Store:
                 )
             ]
 
+    def snapshot_detail(self, snapshot_id: str) -> dict:
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            row = db.execute(
+                "SELECT id,project_id,git_commit,cmake_config,build_directory,created_at,metadata_json,diagnostics_json "
+                "FROM snapshots WHERE id=?",
+                (snapshot_id,),
+            ).fetchone()
+        result = dict(row)
+        result["metadata"] = json.loads(result.pop("metadata_json"))
+        result["diagnostics"] = json.loads(result.pop("diagnostics_json"))
+        return result
+
     def _snapshot(self, db, snapshot_id: str) -> None:
         row = db.execute("SELECT status FROM snapshots WHERE id=?", (snapshot_id,)).fetchone()
         if row is None or row["status"] != "complete":
@@ -334,7 +347,7 @@ class Store:
             records = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT kind,file_path,line_start,line_end,description,metadata_json FROM evidence WHERE snapshot_id=? AND edge_id=? ORDER BY id",
+                    "SELECT id,kind,file_path,line_start,line_end,description,metadata_json FROM evidence WHERE snapshot_id=? AND edge_id=? ORDER BY id",
                     (snapshot_id, edge_id),
                 )
             ]

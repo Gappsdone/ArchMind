@@ -2,7 +2,7 @@
 
 **Architecture intelligence for complex codebases.**
 
-Status: Milestones 1 and 2 have local implementations; an M3 semantic-analysis slice is available. CMake target indexing, immutable SQLite snapshots, CLI/REST queries, React/Cytoscape exploration, and clang-uml class/namespace relationships are tested on Linux. Windows CI is configured but has not run. Free-function/call analysis, incremental reindexing, MCP/AI and guided refactoring remain planned.
+Status: M1/M2 are implemented, an M3 semantic-analysis slice is available, and M4 provides read-only MCP plus opt-in selected-edge AI investigations. These are tested on Linux. Windows CI is configured but has not run. Free-function/call analysis, incremental reindexing and guided refactoring remain planned.
 
 ## Requirements
 
@@ -57,6 +57,10 @@ On Linux with Chromium installed, `cd frontend && npm run test:e2e` runs the Pla
 ## C++ semantic indexing (M3 slice)
 
 Use `uv run archmind analyze --project <project-id> --build-dir <project-root>/build-analysis --configure --generator Ninja --semantic` for a Ninja analysis build. `--semantic` runs clang-uml after CMake indexing and stores a new immutable snapshot. Set `ARCHMIND_CLANG_UML` to an executable path if clang-uml is not on `PATH`; `ARCHMIND_SEMANTIC_THREADS` bounds analyzer concurrency (1–32, default 1). The command requires `compile_commands.json`; Visual Studio generators do not generally provide it. The UI graph-level selector opens target, namespace and class views. Target selection lists source-owned classes; target-edge selection can show cross-target C++ relationships with evidence. The CLI also exposes `symbols`, `trace` and `impact` commands. See [M3 semantics and limitations](docs/m3-semantic.md).
+
+## MCP and AI investigations (M4)
+
+`uv run archmind mcp` starts the local stdio MCP server for external agents. The explorer can also ask questions about a selected target edge and review proposed dependency-removal alternatives. Configure `ARCHMIND_MODEL_BASE_URL` and `ARCHMIND_MODEL_NAME` for a local OpenAI-compatible model; without them, questions return a clear configuration error. The selected edge and snapshot are validated and retained across follow-ups. Model output is labeled as interpretation/proposal and cannot edit code. See [M4 usage and limitations](docs/m4-investigations.md).
 
 ## Provenance and limits
 

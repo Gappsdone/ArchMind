@@ -109,6 +109,14 @@ def trace(snapshot: str = typer.Option(...), edge: str = typer.Option(...)):
     output(store().symbol_trace(snapshot, edge))
 
 
+@app.command("mcp")
+def mcp_serve():
+    """Serve read-only architecture tools over local MCP stdio."""
+    from .mcp_server import create_mcp_server
+
+    create_mcp_server().run(transport="stdio")
+
+
 @app.command()
 def serve(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8000)):
     import uvicorn

@@ -1,3 +1,6 @@
+export type InvestigationReply = { answer: string; findings: { text: string; citation_ids: string[] }[]; hypotheses: string[]; uncertainty: string[]; alternatives: { title: string; rationale: string; impact: string; tradeoffs: string[]; risks: string[]; affected_targets: string[]; affected_files: string[]; complexity: string; plan_steps: string[] }[]; status: string };
+export type InvestigationRecord = { id: string; turns: { role: 'user' | 'assistant'; content: string | InvestigationReply }[] };
+export type InvestigationSelection = { projectId: string; snapshotId: string; edgeId: string; sourceId: string; targetId: string; relationship: string };
 export type Project = { id: string; name: string; root_path: string };
 export type Snapshot = { id: string; project_id: string; status: string; cmake_config: string; created_at: string; git_commit: string | null };
 export type GraphNode = { id: string; kind: string; name: string; stable_key: string };
@@ -13,8 +16,8 @@ export type Impact = { items: { id: string; name: string; stable_key: string; di
 
 const BASE = '/api/v1';
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${BASE}${path}`);
+async function request<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body?.error?.message || `Request failed (${response.status})`);
@@ -23,6 +26,8 @@ async function request<T>(path: string): Promise<T> {
 }
 
 export const api = {
+  createInvestigation: (selection: InvestigationSelection) => request<InvestigationRecord>('/investigations', { project_id: selection.projectId, snapshot_id: selection.snapshotId, edge_id: selection.edgeId, source_id: selection.sourceId, target_id: selection.targetId, relationship: selection.relationship }),
+  askInvestigation: (id: string, question: string) => request<InvestigationReply>(`/investigations/${encodeURIComponent(id)}/messages`, { question }),
   projects: () => request<{ items: Project[] }>('/projects'),
   snapshots: (id: string) => request<{ items: Snapshot[] }>(`/projects/${encodeURIComponent(id)}/snapshots`),
   subgraph: (id: string, options: { centerId?: string; cursor?: string; limit?: number; scope?: GraphScope } = {}) => {

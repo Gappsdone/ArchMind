@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .core import NotFound, Store
+from .investigations import Investigations, LocalModel, ModelUnavailable
+from .query_service import ArchitectureQueries
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,24 @@ class AnalysisInput(BaseModel):
     generator: str | None = None
 
 
-def create_app(database: Path | None = None) -> FastAPI:
+class SelectionInput(BaseModel):
+    project_id: str
+    snapshot_id: str
+    edge_id: str
+    source_id: str
+    target_id: str
+    relationship: str
+
+
+class QuestionInput(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+def create_app(database: Path | None = None, model: LocalModel | None = None) -> FastAPI:
     store = Store(database or Path(os.getenv("ARCHMIND_DB", "archmind.db")))
-    app = FastAPI(title="ArchMind", version="0.3.0")
+    queries = ArchitectureQueries(store)
+    investigations = Investigations(store, model)
+    app = FastAPI(title="ArchMind", version="0.4.0")
     web = Path(__file__).parent / "web"
 
     @app.get("/", include_in_schema=False)
@@ -66,6 +83,29 @@ def create_app(database: Path | None = None) -> FastAPI:
             status_code=400,
             content={"error": {"code": "INVALID_INPUT", "message": str(exc), "details": {}}},
         )
+
+    @app.exception_handler(ModelUnavailable)
+    async def unavailable(_request, exc: ModelUnavailable):
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "MODEL_UNAVAILABLE", "message": str(exc), "details": {}}},
+        )
+
+    @app.post("/api/v1/investigations", status_code=201)
+    def create_investigation(body: SelectionInput):
+        return investigations.create(body.model_dump())
+
+    @app.get("/api/v1/investigations/{investigation_id}")
+    def get_investigation(investigation_id: str):
+        return investigations.get(investigation_id)
+
+    @app.post("/api/v1/investigations/{investigation_id}/messages")
+    def ask_investigation(investigation_id: str, body: QuestionInput):
+        return investigations.ask(investigation_id, body.question)
+
+    @app.get("/api/v1/snapshots/{snapshot_id}/edges/{edge_id}/context")
+    def edge_context(snapshot_id: str, edge_id: str):
+        return queries.explain_dependency_context(snapshot_id, edge_id)
 
     @app.post("/api/v1/projects", status_code=201)
     def add_project(body: ProjectInput):
@@ -150,7 +190,7 @@ def create_app(database: Path | None = None) -> FastAPI:
     def cycles(snapshot_id: str, kind: str = "BUILD_DEPENDS_ON"):
         if kind not in {"BUILD_DEPENDS_ON", "LINKS_TO", "INHERITS", "USES_TYPE", "DEPENDS_ON"}:
             raise ValueError("Unsupported cycle relationship kind")
-        return {"items": store.cycles(snapshot_id, kind)}
+        return queries.detect_cycles(snapshot_id, kind)
 
     @app.get("/api/v1/snapshots/{snapshot_id}/subgraph")
     def subgraph(
@@ -188,7 +228,7 @@ def create_app(database: Path | None = None) -> FastAPI:
 
     @app.get("/api/v1/snapshots/{snapshot_id}/edges/{edge_id}/evidence")
     def evidence(snapshot_id: str, edge_id: str):
-        return store.evidence(snapshot_id, edge_id)
+        return queries.get_dependency_evidence(snapshot_id, edge_id)
 
     @app.get("/api/v1/snapshots/{snapshot_id}/source")
     def source(
