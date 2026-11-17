@@ -31,15 +31,25 @@ def _backtrace(target: dict, index: int | None) -> tuple[str | None, int | None,
 
 
 def extract(
-    root: Path, build: Path, config: str, configure: bool = False
+    root: Path,
+    build: Path,
+    config: str,
+    configure: bool = False,
+    export_compile_commands: bool = False,
+    generator: str | None = None,
 ) -> tuple[Observation, dict]:
     root, build = root.resolve(), build.resolve()
     query = build / ".cmake/api/v1/query/codemodel-v2"
     if configure:
         query.parent.mkdir(parents=True, exist_ok=True)
         query.touch()
+        args = ["cmake", "-S", str(root), "-B", str(build)]
+        if generator:
+            args.extend(["-G", generator])
+        if export_compile_commands:
+            args.append("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
         proc = subprocess.run(
-            ["cmake", "-S", str(root), "-B", str(build)],
+            args,
             text=True,
             capture_output=True,
             check=False,

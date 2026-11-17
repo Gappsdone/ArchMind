@@ -42,3 +42,5 @@ External FOSS tools used during M1: CMake (BSD-3-Clause), Ninja (Apache-2.0), uv
 ## Frontend resolved package licenses
 
 The M2 npm lockfile contains React 19.3.1, React DOM 19.3.1, Cytoscape 3.35.0, esbuild 0.28.2 and associated platform binaries (MIT); TypeScript 5.9.3 and Playwright 1.65.1 (Apache-2.0); and MIT-licensed type packages. See `frontend/package-lock.json` for the full version tree. `npm audit` reported zero advisories on 2026-11-17. The bundled runtime JavaScript contains React, React DOM, scheduler and Cytoscape; their full license notices ship in `src/archmind/web/THIRD_PARTY_NOTICES.txt`.
+
+M3 optional semantic analyzer: clang-uml 0.6.3, Apache-2.0 (external executable, not bundled in the ArchMind wheel). Its LLVM/Clang and yaml-cpp dependencies are FOSS; verify the target platform packages and redistribute applicable notices if packaging the tool.

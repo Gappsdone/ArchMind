@@ -1,7 +1,7 @@
 {
   "name": "archmind-frontend",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "build": "esbuild src/main.tsx --bundle --minify --format=esm --target=es2022 --outdir=../src/archmind/web",

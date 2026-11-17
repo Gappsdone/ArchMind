@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cycleSets, edgeInCycle, mergeGraph, type GraphEdge, type Subgraph } from '../src/api';
+import { cycleSets, edgeInCycle, mergeGraph, relationshipLabel, type GraphEdge, type Subgraph } from '../src/api';
 
 const a = { id: 'a', kind: 'CMAKE_TARGET', name: 'A', stable_key: 'A' };
 const b = { id: 'b', kind: 'CMAKE_TARGET', name: 'B', stable_key: 'B' };
@@ -21,4 +21,10 @@ test('cycle styling applies only to edges within the same SCC', () => {
   const groups = cycleSets([['a', 'b'], ['c', 'd']]);
   assert.equal(edgeInCycle(ab, groups), true);
   assert.equal(edgeInCycle(bc, groups), false);
+});
+
+test('semantic relationship subtypes remain visible while preserving the graph edge kind', () => {
+  const composition = { ...bc, kind: 'USES_TYPE', metadata_json: JSON.stringify({ clang_uml_type: 'composition' }) };
+  assert.equal(composition.kind, 'USES_TYPE');
+  assert.equal(relationshipLabel(composition), 'COMPOSITION');
 });

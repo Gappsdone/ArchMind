@@ -2,11 +2,11 @@
 
 **Architecture intelligence for complex codebases.**
 
-Status: Milestones 1 and 2 have local implementations. CMake target indexing, immutable SQLite snapshots, CLI/REST queries, and a React/Cytoscape target explorer are available and tested on Linux. Windows CI is configured but has not run. C++ symbol analysis, MCP/AI and guided refactoring remain planned.
+Status: Milestones 1 and 2 have local implementations; an M3 semantic-analysis slice is available. CMake target indexing, immutable SQLite snapshots, CLI/REST queries, React/Cytoscape exploration, and clang-uml class/namespace relationships are tested on Linux. Windows CI is configured but has not run. Free-function/call analysis, incremental reindexing, MCP/AI and guided refactoring remain planned.
 
 ## Requirements
 
-Python 3.12+, CMake 3.20+, a C++ compiler, Git, Node.js 20+ with npm, and `uv` (or standards-compliant pip). Windows also needs Ninja for the test fixture. All required software is free/open-source.
+Python 3.12+, CMake 3.20+, a C++ compiler, Git, Node.js 20+ with npm, and `uv` (or standards-compliant pip). For optional M3 indexing, install FOSS `clang-uml` 0.6.x and use a Ninja or Makefiles build that exports `compile_commands.json`. Windows also needs Ninja for the test fixture. All required software is free/open-source.
 
 ## Install and test
 
@@ -53,6 +53,10 @@ Use the IDs returned by the preceding commands. `--configure` on `analyze` can c
 Select a project and completed snapshot, pan/zoom the graph, search targets across the snapshot, filter build-order and verified-link edges, expand a target neighborhood, or load the next overview page. Select an edge in the graph or relationship list to inspect evidence and open a source excerpt. Cycle members and edges are highlighted where the indexed relationship graph supports them. The view is capped at 200 target nodes and 500 edges per request; it does not attempt to render a whole large repository at once. See [M2 design and limits](docs/m2-explorer.md).
 
 On Linux with Chromium installed, `cd frontend && npm run test:e2e` runs the Playwright browser smoke test against a disposable fixture server. The browser test is separate from the Python and frontend unit suites.
+
+## C++ semantic indexing (M3 slice)
+
+Use `uv run archmind analyze --project <project-id> --build-dir <project-root>/build-analysis --configure --generator Ninja --semantic` for a Ninja analysis build. `--semantic` runs clang-uml after CMake indexing and stores a new immutable snapshot. Set `ARCHMIND_CLANG_UML` to an executable path if clang-uml is not on `PATH`; `ARCHMIND_SEMANTIC_THREADS` bounds analyzer concurrency (1–32, default 1). The command requires `compile_commands.json`; Visual Studio generators do not generally provide it. The UI graph-level selector opens target, namespace and class views. Target selection lists source-owned classes; target-edge selection can show cross-target C++ relationships with evidence. The CLI also exposes `symbols`, `trace` and `impact` commands. See [M3 semantics and limitations](docs/m3-semantic.md).
 
 ## Provenance and limits
 

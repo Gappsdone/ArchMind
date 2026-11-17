@@ -56,3 +56,23 @@ jobs:
         run: |
           npx playwright install chromium --with-deps
           npm run test:e2e
+
+  m3-real-clang-uml:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FOSS backend and pinned clang-uml release
+        shell: bash
+        run: |
+          python -m pip install ninja ".[dev]"
+          curl -fsSL https://github.com/bkryza/clang-uml/releases/download/0.6.3/clang-uml_0.6.3-0ubuntu1ppa1.noble_amd64.deb -o /tmp/archmind-clang-uml.deb
+          echo '9d2d6fbda53fb932e169d24f8b738fb6642731b9b20bbb2ea7f31fd09b4a7cb8  /tmp/archmind-clang-uml.deb' | sha256sum -c -
+          sudo apt-get update
+          sudo apt-get install -y /tmp/archmind-clang-uml.deb
+      - name: Real C++ semantic integration
+        env:
+          ARCHMIND_CLANG_UML: /usr/bin/clang-uml
+        run: pytest -q tests/test_m3.py

@@ -3,8 +3,12 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-NodeKind = Literal["PROJECT", "CMAKE_TARGET", "FILE", "EXTERNAL_LIBRARY"]
-EdgeKind = Literal["CONTAINS", "OWNS_FILE", "LINKS_TO", "BUILD_DEPENDS_ON"]
+NodeKind = Literal[
+    "PROJECT", "CMAKE_TARGET", "FILE", "EXTERNAL_LIBRARY", "NAMESPACE", "CLASS", "STRUCT", "METHOD"
+]
+EdgeKind = Literal[
+    "CONTAINS", "OWNS_FILE", "LINKS_TO", "BUILD_DEPENDS_ON", "INHERITS", "USES_TYPE", "DEPENDS_ON"
+]
 
 
 @dataclass(frozen=True)

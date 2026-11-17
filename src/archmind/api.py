@@ -24,11 +24,12 @@ class AnalysisInput(BaseModel):
     configuration: str = ""
     analyzers: list[str] = ["cmake"]
     configure: bool = False
+    generator: str | None = None
 
 
 def create_app(database: Path | None = None) -> FastAPI:
     store = Store(database or Path(os.getenv("ARCHMIND_DB", "archmind.db")))
-    app = FastAPI(title="ArchMind", version="0.2.0")
+    app = FastAPI(title="ArchMind", version="0.3.0")
     web = Path(__file__).parent / "web"
 
     @app.get("/", include_in_schema=False)
@@ -76,8 +77,8 @@ def create_app(database: Path | None = None) -> FastAPI:
 
     @app.post("/api/v1/projects/{project_id}/analyses", status_code=202)
     def analyze(project_id: str, body: AnalysisInput, background: BackgroundTasks):
-        if body.analyzers != ["cmake"]:
-            raise ValueError("M1 supports only the cmake analyzer")
+        if body.analyzers not in (["cmake"], ["cmake", "clang-uml"]):
+            raise ValueError("Supported analyzers are ['cmake'] or ['cmake', 'clang-uml']")
         root = Path(store.project(project_id)["root_path"])
         build = Path(body.build_directory).resolve()
         if build != root and root not in build.parents:
@@ -88,7 +89,15 @@ def create_app(database: Path | None = None) -> FastAPI:
 
         def run():
             try:
-                store.analyze(project_id, build, body.configuration, body.configure, job_id)
+                store.analyze(
+                    project_id,
+                    build,
+                    body.configuration,
+                    body.configure,
+                    job_id,
+                    analyzers=tuple(body.analyzers),
+                    generator=body.generator,
+                )
             except Exception as exc:
                 logger.exception("ArchMind analysis job failed")
                 with store.connect() as db:
@@ -122,6 +131,10 @@ def create_app(database: Path | None = None) -> FastAPI:
     ):
         return store.nodes(snapshot_id, kind, name, cursor, limit)
 
+    @app.get("/api/v1/snapshots/{snapshot_id}/nodes/{node_id}")
+    def node_detail(snapshot_id: str, node_id: str):
+        return store.node_detail(snapshot_id, node_id)
+
     @app.get("/api/v1/snapshots/{snapshot_id}/edges")
     def edges(
         snapshot_id: str,
@@ -135,8 +148,8 @@ def create_app(database: Path | None = None) -> FastAPI:
 
     @app.get("/api/v1/snapshots/{snapshot_id}/cycles")
     def cycles(snapshot_id: str, kind: str = "BUILD_DEPENDS_ON"):
-        if kind not in {"BUILD_DEPENDS_ON", "LINKS_TO"}:
-            raise ValueError("Cycles require BUILD_DEPENDS_ON or LINKS_TO")
+        if kind not in {"BUILD_DEPENDS_ON", "LINKS_TO", "INHERITS", "USES_TYPE", "DEPENDS_ON"}:
+            raise ValueError("Unsupported cycle relationship kind")
         return {"items": store.cycles(snapshot_id, kind)}
 
     @app.get("/api/v1/snapshots/{snapshot_id}/subgraph")
@@ -147,8 +160,31 @@ def create_app(database: Path | None = None) -> FastAPI:
         limit: int = Query(100, ge=1, le=200),
         cursor: str | None = None,
         kind: str | None = None,
+        scope: str = "target",
     ):
-        return store.subgraph(snapshot_id, center_id, depth, limit, cursor, kind)
+        return store.subgraph(snapshot_id, center_id, depth, limit, cursor, kind, scope)
+
+    @app.get("/api/v1/snapshots/{snapshot_id}/targets/{target_id}/symbols")
+    def target_symbols(
+        snapshot_id: str,
+        target_id: str,
+        limit: int = Query(100, ge=1, le=200),
+        cursor: str | None = None,
+    ):
+        return store.target_symbols(snapshot_id, target_id, limit, cursor)
+
+    @app.get("/api/v1/snapshots/{snapshot_id}/edges/{edge_id}/symbol-trace")
+    def symbol_trace(snapshot_id: str, edge_id: str, limit: int = Query(100, ge=1, le=100)):
+        return store.symbol_trace(snapshot_id, edge_id, limit)
+
+    @app.get("/api/v1/snapshots/{snapshot_id}/impact")
+    def impact(
+        snapshot_id: str,
+        symbol_id: str,
+        depth: int = Query(2, ge=1, le=3),
+        limit: int = Query(100, ge=1, le=200),
+    ):
+        return store.impact(snapshot_id, symbol_id, depth, limit)
 
     @app.get("/api/v1/snapshots/{snapshot_id}/edges/{edge_id}/evidence")
     def evidence(snapshot_id: str, edge_id: str):

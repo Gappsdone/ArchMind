@@ -89,7 +89,13 @@ class Store:
         config: str,
         configure: bool = False,
         job_id: str | None = None,
+        analyzers: tuple[str, ...] = ("cmake",),
+        generator: str | None = None,
     ) -> dict:
+        if analyzers not in (("cmake",), ("cmake", "clang-uml")):
+            raise ValueError("Supported analyzers are ['cmake'] or ['cmake', 'clang-uml']")
+        if generator and (not configure or generator not in ("Ninja", "Unix Makefiles")):
+            raise ValueError("Generator must be Ninja or Unix Makefiles and requires --configure")
         project = self.project(project_id)
         root = Path(project["root_path"])
         build = build.resolve()
@@ -116,7 +122,21 @@ class Store:
                     (snapshot_id, job_id),
                 )
         try:
-            obs, metadata = extract(root, build, config, configure)
+            obs, metadata = extract(
+                root,
+                build,
+                config,
+                configure,
+                export_compile_commands="clang-uml" in analyzers,
+                generator=generator,
+            )
+            metadata["analyzers"] = list(analyzers)
+            if "clang-uml" in analyzers:
+                from .semantic import merge, run
+
+                semantic, semantic_metadata = run(root, build)
+                obs = merge(obs, semantic)
+                metadata.update(semantic_metadata)
             self._publish(snapshot_id, obs, metadata)
             if job_id:
                 with self.connect() as db:
@@ -263,6 +283,19 @@ class Store:
             raise NotFound("Node not found")
         return dict(row)
 
+    def node_detail(self, snapshot_id: str, node_id: str) -> dict:
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            row = db.execute(
+                "SELECT id,kind,name,stable_key,metadata_json FROM nodes WHERE snapshot_id=? AND id=?",
+                (snapshot_id, node_id),
+            ).fetchone()
+        if row is None:
+            raise NotFound("Node not found")
+        result = dict(row)
+        result["metadata"] = json.loads(result.pop("metadata_json"))
+        return result
+
     def edges(
         self,
         snapshot_id: str,
@@ -319,20 +352,33 @@ class Store:
         limit: int = 100,
         cursor: str | None = None,
         kind: str | None = None,
+        scope: str = "target",
     ) -> dict:
-        """Return a bounded target-only overview or neighborhood."""
+        """Return a bounded target or C++ class overview/neighborhood."""
         if not 1 <= limit <= 200 or not 0 <= depth <= 2:
             raise ValueError("Subgraph limit/depth outside supported bounds")
-        if kind not in (None, "BUILD_DEPENDS_ON", "LINKS_TO"):
+        if scope not in ("target", "symbol", "namespace"):
+            raise ValueError("Unsupported graph scope")
+        allowed_kinds = {
+            "target": ("BUILD_DEPENDS_ON", "LINKS_TO"),
+            "symbol": ("INHERITS", "USES_TYPE"),
+            "namespace": ("DEPENDS_ON", "CONTAINS"),
+        }[scope]
+        node_kinds_sql = {
+            "target": "'CMAKE_TARGET'",
+            "symbol": "'CLASS','STRUCT'",
+            "namespace": "'NAMESPACE'",
+        }[scope]
+        if kind is not None and kind not in allowed_kinds:
             raise ValueError("Unsupported subgraph edge kind")
-        kinds = (kind,) if kind else ("BUILD_DEPENDS_ON", "LINKS_TO")
+        kinds = (kind,) if kind else allowed_kinds
         placeholders = ",".join("?" for _ in kinds)
         with self.connect() as db:
             self._snapshot(db, snapshot_id)
             if center_id is None:
                 rows = db.execute(
                     "SELECT id,kind,name,stable_key FROM nodes "
-                    "WHERE snapshot_id=? AND kind='CMAKE_TARGET' AND stable_key>? "
+                    f"WHERE snapshot_id=? AND kind IN ({node_kinds_sql}) AND stable_key>? "
                     "ORDER BY stable_key LIMIT ?",
                     (snapshot_id, cursor or "", limit + 1),
                 ).fetchall()
@@ -341,7 +387,7 @@ class Store:
                 truncated = next_cursor is not None
             else:
                 row = db.execute(
-                    "SELECT id FROM nodes WHERE snapshot_id=? AND id=? AND kind='CMAKE_TARGET'",
+                    f"SELECT id FROM nodes WHERE snapshot_id=? AND id=? AND kind IN ({node_kinds_sql})",
                     (snapshot_id, center_id),
                 ).fetchone()
                 if row is None:
@@ -358,7 +404,7 @@ class Store:
                         f"SELECT e.source_id,e.target_id FROM edges e "
                         f"JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
                         f"WHERE e.snapshot_id=? AND e.kind IN ({placeholders}) "
-                        f"AND s.kind='CMAKE_TARGET' AND t.kind='CMAKE_TARGET' "
+                        f"AND s.kind IN ({node_kinds_sql}) AND t.kind IN ({node_kinds_sql}) "
                         f"AND (e.source_id IN ({marks}) OR e.target_id IN ({marks})) "
                         "ORDER BY e.id LIMIT 1001",
                         (snapshot_id, *kinds, *sorted(frontier), *sorted(frontier)),
@@ -391,7 +437,7 @@ class Store:
                 )
             ]
             edge_rows = db.execute(
-                f"SELECT e.id,e.source_id,e.target_id,e.kind,e.origin,COUNT(v.id) evidence_count "
+                f"SELECT e.id,e.source_id,e.target_id,e.kind,e.origin,e.metadata_json,COUNT(v.id) evidence_count "
                 f"FROM edges e LEFT JOIN evidence v ON v.edge_id=e.id "
                 f"WHERE e.snapshot_id=? AND e.kind IN ({placeholders}) "
                 f"AND e.source_id IN ({marks}) AND e.target_id IN ({marks}) "
@@ -433,6 +479,162 @@ class Store:
             "path": path.relative_to(root).as_posix(),
             "requested_line": line,
             "lines": [{"number": n, "text": lines[n - 1]} for n in range(first, last + 1)],
+        }
+
+    def target_symbols(
+        self, snapshot_id: str, target_id: str, limit: int = 200, cursor: str | None = None
+    ) -> dict:
+        if not 1 <= limit <= 200:
+            raise ValueError("Symbol page size outside supported bounds")
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            target = db.execute(
+                "SELECT id FROM nodes WHERE snapshot_id=? AND id=? AND kind='CMAKE_TARGET'",
+                (snapshot_id, target_id),
+            ).fetchone()
+            if target is None:
+                raise NotFound("Target not found")
+            rows = db.execute(
+                "SELECT DISTINCT n.id,n.kind,n.name,n.stable_key,n.metadata_json "
+                "FROM edges owns JOIN edges declares ON declares.source_id=owns.target_id "
+                "JOIN nodes n ON n.id=declares.target_id "
+                "WHERE owns.snapshot_id=? AND owns.source_id=? AND owns.kind='OWNS_FILE' "
+                "AND declares.kind='CONTAINS' AND n.kind IN ('CLASS','STRUCT') "
+                "AND n.stable_key>? "
+                "ORDER BY n.stable_key LIMIT ?",
+                (snapshot_id, target_id, cursor or "", limit + 1),
+            ).fetchall()
+        items = [dict(row) for row in rows[:limit]]
+        return {
+            "items": items,
+            "truncated": len(rows) > limit,
+            "next_cursor": items[-1]["stable_key"] if len(rows) > limit else None,
+        }
+
+    def symbol_trace(self, snapshot_id: str, edge_id: str, limit: int = 100) -> dict:
+        """Find exact class relationships spanning a selected target edge."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Trace page size outside supported bounds")
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            target_edge = db.execute(
+                "SELECT source_id,target_id,kind FROM edges WHERE snapshot_id=? AND id=? "
+                "AND kind IN ('BUILD_DEPENDS_ON','LINKS_TO')",
+                (snapshot_id, edge_id),
+            ).fetchone()
+            if target_edge is None:
+                raise NotFound("Target dependency edge not found")
+            rows = db.execute(
+                "WITH source_symbols AS ("
+                " SELECT d.target_id id FROM edges o JOIN edges d ON d.source_id=o.target_id "
+                " JOIN nodes n ON n.id=d.target_id WHERE o.snapshot_id=? AND o.source_id=? "
+                " AND o.kind='OWNS_FILE' AND d.kind='CONTAINS' AND n.kind IN ('CLASS','STRUCT')"
+                "), target_symbols AS ("
+                " SELECT d.target_id id FROM edges o JOIN edges d ON d.source_id=o.target_id "
+                " JOIN nodes n ON n.id=d.target_id WHERE o.snapshot_id=? AND o.source_id=? "
+                " AND o.kind='OWNS_FILE' AND d.kind='CONTAINS' AND n.kind IN ('CLASS','STRUCT')"
+                ") SELECT r.id,r.kind,r.source_id,r.target_id,s.name source_name,t.name target_name "
+                "FROM edges r JOIN nodes s ON s.id=r.source_id JOIN nodes t ON t.id=r.target_id "
+                "WHERE r.snapshot_id=? AND r.kind IN ('INHERITS','USES_TYPE') "
+                "AND r.source_id IN (SELECT id FROM source_symbols) "
+                "AND r.target_id IN (SELECT id FROM target_symbols) ORDER BY r.id LIMIT ?",
+                (
+                    snapshot_id,
+                    target_edge["source_id"],
+                    snapshot_id,
+                    target_edge["target_id"],
+                    snapshot_id,
+                    limit + 1,
+                ),
+            ).fetchall()
+        items = [
+            {**dict(row), "evidence": self.evidence(snapshot_id, row["id"])["evidence"]}
+            for row in rows[:limit]
+        ]
+        return {
+            "items": items,
+            "truncated": len(rows) > limit,
+            "diagnostics": []
+            if items
+            else [
+                "No cross-target class relationship could be traced; headers may lack target ownership or analysis may be incomplete"
+            ],
+        }
+
+    def impact(self, snapshot_id: str, symbol_id: str, depth: int = 2, limit: int = 100) -> dict:
+        """Bounded reverse traversal: classes that use or inherit this class."""
+        if not 1 <= depth <= 3 or not 1 <= limit <= 200:
+            raise ValueError("Impact depth/limit outside supported bounds")
+        with self.connect() as db:
+            self._snapshot(db, snapshot_id)
+            start = db.execute(
+                "SELECT id FROM nodes WHERE snapshot_id=? AND id=? AND kind IN ('CLASS','STRUCT')",
+                (snapshot_id, symbol_id),
+            ).fetchone()
+            if start is None:
+                raise NotFound("Class or struct not found")
+            seen = {symbol_id}
+            frontier = {symbol_id}
+            result = []
+            truncated = False
+            for distance in range(1, depth + 1):
+                if not frontier:
+                    break
+                marks = ",".join("?" for _ in frontier)
+                rows = db.execute(
+                    f"SELECT e.source_id,e.target_id,e.kind,n.name,n.stable_key "
+                    f"FROM edges e JOIN nodes n ON n.id=e.source_id "
+                    f"WHERE e.snapshot_id=? AND e.kind IN ('INHERITS','USES_TYPE') "
+                    f"AND e.target_id IN ({marks}) ORDER BY e.id LIMIT 1001",
+                    (snapshot_id, *sorted(frontier)),
+                ).fetchall()
+                if len(rows) > 1000:
+                    truncated = True
+                next_frontier = set()
+                for row in rows[:1000]:
+                    source = row["source_id"]
+                    if source in seen:
+                        continue
+                    if len(result) >= limit:
+                        truncated = True
+                        break
+                    seen.add(source)
+                    next_frontier.add(source)
+                    result.append(
+                        {
+                            "id": source,
+                            "name": row["name"],
+                            "stable_key": row["stable_key"],
+                            "distance": distance,
+                            "via": row["kind"],
+                        }
+                    )
+                frontier = next_frontier
+            ownership: dict[str, list[dict]] = {item["id"]: [] for item in result}
+            if ownership:
+                marks = ",".join("?" for _ in ownership)
+                owners = db.execute(
+                    f"SELECT DISTINCT d.target_id class_id,t.id target_id,t.name target_name "
+                    f"FROM edges d JOIN edges o ON o.target_id=d.source_id "
+                    f"JOIN nodes t ON t.id=o.source_id "
+                    f"WHERE d.snapshot_id=? AND d.kind='CONTAINS' "
+                    f"AND o.kind='OWNS_FILE' AND d.target_id IN ({marks}) "
+                    "ORDER BY t.name,t.id",
+                    (snapshot_id, *ownership),
+                ).fetchall()
+                for owner in owners:
+                    ownership[owner["class_id"]].append(
+                        {"id": owner["target_id"], "name": owner["target_name"]}
+                    )
+            for item in result:
+                item["targets"] = ownership[item["id"]]
+        affected_targets = {target["id"]: target for item in result for target in item["targets"]}
+        return {
+            "items": result,
+            "truncated": truncated,
+            "affected_targets": sorted(
+                affected_targets.values(), key=lambda target: target["name"]
+            ),
         }
 
     def cycles(self, snapshot_id: str, kind: str = "BUILD_DEPENDS_ON") -> list[list[str]]:

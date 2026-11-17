@@ -23,10 +23,14 @@ export function GraphView({ nodes, edges, cycleNodes, cycleEdges, onNode, onEdge
       layout: { name: 'preset' },
       style: [
         { selector: 'node', style: { 'background-color': '#1e8091', label: 'data(label)', color: '#e9f5f3', 'font-size': 11, 'text-outline-color': '#102630', 'text-outline-width': 2, 'text-valign': 'bottom', 'text-margin-y': 9, width: 30, height: 30, 'border-width': 2, 'border-color': '#55b6b8' } },
+        { selector: 'node.symbol', style: { 'background-color': '#665b9d', 'border-color': '#a9a0dd' } },
+        { selector: 'node.namespace', style: { 'background-color': '#5d7847', 'border-color': '#a3c484', 'shape': 'round-rectangle' } },
         { selector: 'node.cycle', style: { 'background-color': '#dd9d39', 'border-color': '#ffd18a' } },
         { selector: 'edge', style: { width: 2, 'line-color': '#5c8990', 'target-arrow-color': '#5c8990', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', opacity: 0.75 } },
         { selector: 'edge.link', style: { 'line-color': '#9ccf80', 'target-arrow-color': '#9ccf80', 'line-style': 'solid' } },
         { selector: 'edge.build', style: { 'line-style': 'dashed' } },
+        { selector: 'edge.inherits', style: { 'line-color': '#ad99dc', 'target-arrow-color': '#ad99dc' } },
+        { selector: 'edge.derived', style: { 'line-color': '#e0b876', 'target-arrow-color': '#e0b876', 'line-style': 'dotted' } },
         { selector: 'edge.cycle', style: { 'line-color': '#f2b155', 'target-arrow-color': '#f2b155', width: 4, opacity: 1 } },
         { selector: ':selected', style: { 'border-color': '#ffffff', 'line-color': '#ffffff', 'target-arrow-color': '#ffffff' } },
       ],
@@ -44,12 +48,12 @@ export function GraphView({ nodes, edges, cycleNodes, cycleEdges, onNode, onEdge
     if (!cy) return;
     cy.elements().remove();
     cy.add([
-      ...nodes.map(node => ({ data: { id: node.id, label: node.name }, classes: cycleNodes.has(node.id) ? 'cycle' : '' })),
-      ...edges.map(edge => ({ data: { id: edge.id, source: edge.source_id, target: edge.target_id }, classes: `${edge.kind === 'LINKS_TO' ? 'link' : 'build'} ${cycleEdges.has(edge.id) ? 'cycle' : ''}` })),
+      ...nodes.map(node => ({ data: { id: node.id, label: node.name }, classes: `${node.kind === 'NAMESPACE' ? 'namespace' : node.kind === 'CLASS' || node.kind === 'STRUCT' ? 'symbol' : ''} ${cycleNodes.has(node.id) ? 'cycle' : ''}` })),
+      ...edges.map(edge => ({ data: { id: edge.id, source: edge.source_id, target: edge.target_id }, classes: `${edge.origin === 'derived' ? 'derived' : edge.kind === 'LINKS_TO' || edge.kind === 'USES_TYPE' ? 'link' : edge.kind === 'INHERITS' ? 'inherits' : 'build'} ${cycleEdges.has(edge.id) ? 'cycle' : ''}` })),
     ]);
     cy.layout({ name: nodes.length < 40 ? 'breadthfirst' : 'cose', directed: true, animate: false, padding: 45 }).run();
     cy.fit(undefined, 45);
   }, [nodes, edges, cycleNodes, cycleEdges]);
 
-  return <div className="graph-canvas" ref={container} role="img" aria-label="Interactive target dependency graph" />;
+  return <div className="graph-canvas" ref={container} role="img" aria-label="Interactive architecture dependency graph" />;
 }
