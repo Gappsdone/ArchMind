@@ -13,6 +13,7 @@ from archmind.core import Store
 from archmind.semantic import normalize
 
 FIXTURE = Path(__file__).parent / "fixtures/semantic"
+ANALYSIS_GENERATOR = "Ninja" if os.name == "nt" else "Unix Makefiles"
 
 
 @pytest.fixture
@@ -27,7 +28,12 @@ def semantic_graph(tmp_path, monkeypatch):
     db = Store(tmp_path / "archmind.db")
     project = db.project_add("Semantic", root)
     snapshot = db.analyze(
-        project["id"], root / "build", "", configure=True, analyzers=("cmake", "clang-uml")
+        project["id"],
+        root / "build",
+        "",
+        configure=True,
+        analyzers=("cmake", "clang-uml"),
+        generator=ANALYSIS_GENERATOR,
     )
     return db, snapshot["id"], root
 
@@ -129,7 +135,9 @@ def test_missing_compilation_database_fails_without_replacing_snapshot(tmp_path)
     project = db.project_add("Semantic", root)
     with pytest.raises(ValueError, match="Generator"):
         db.analyze(project["id"], root / "build", "", configure=True, generator="untrusted")
-    old = db.analyze(project["id"], root / "build", "", configure=True)
+    old = db.analyze(
+        project["id"], root / "build", "", configure=True, generator=ANALYSIS_GENERATOR
+    )
     with pytest.raises(ValueError, match="compile_commands.json"):
         db.analyze(project["id"], root / "build", "", analyzers=("cmake", "clang-uml"))
     assert {s["status"] for s in db.snapshots(project["id"])} == {"complete", "failed"}
@@ -143,7 +151,12 @@ def test_real_clang_uml_invocation(tmp_path):
     db = Store(tmp_path / "real.db")
     project = db.project_add("Real clang-uml", root)
     snapshot = db.analyze(
-        project["id"], root / "build", "", configure=True, analyzers=("cmake", "clang-uml")
+        project["id"],
+        root / "build",
+        "",
+        configure=True,
+        analyzers=("cmake", "clang-uml"),
+        generator=ANALYSIS_GENERATOR,
     )
     assert {n["name"] for n in db.nodes(snapshot["id"], kind="CLASS")["items"]} == {
         "Base",
