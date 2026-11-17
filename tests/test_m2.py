@@ -56,7 +56,12 @@ def test_neighborhood_and_kind_filter(graph):
     center = targets(db, sid)["Simulation"]["id"]
     result = db.subgraph(sid, center_id=center, depth=1, limit=4)
     assert {n["name"] for n in result["nodes"]} == {"Application", "Simulation", "Physics", "Math"}
-    assert {e["kind"] for e in result["edges"]} == {"BUILD_DEPENDS_ON", "LINKS_TO"}
+    kinds = {edge["kind"] for edge in result["edges"]}
+    assert "BUILD_DEPENDS_ON" in kinds
+    assert kinds <= {"BUILD_DEPENDS_ON", "LINKS_TO"}
+    # Windows/Ninja codemodels need not expose a corroborated linker fragment.
+    if os.name != "nt":
+        assert "LINKS_TO" in kinds
     links = db.subgraph(sid, center_id=center, kind="LINKS_TO")
     assert all(e["kind"] == "LINKS_TO" for e in links["edges"])
     with pytest.raises(ValueError):
@@ -99,9 +104,15 @@ def test_source_preview_and_traversal_guard(graph, tmp_path):
     )
     outside = tmp_path / "outside.cpp"
     outside.write_text("private")
-    (root / "linked.cpp").symlink_to(outside)
-    assert (
-        client.get(f"/api/v1/snapshots/{sid}/source", params={"path": "linked.cpp"}).status_code
-        == 400
-    )
+    try:
+        (root / "linked.cpp").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        # Some Windows runners cannot create symlinks. Traversal is already
+        # checked above; the symlink guard is tested where supported.
+        pass
+    else:
+        assert (
+            client.get(f"/api/v1/snapshots/{sid}/source", params={"path": "linked.cpp"}).status_code
+            == 400
+        )
     assert client.get("/api/v1/snapshots/missing/subgraph").status_code == 404
