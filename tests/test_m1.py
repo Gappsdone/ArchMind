@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from archmind.api import create_app
+from archmind.cmake import _artifact_for_fragment, _local_link_backtrace
 from archmind.core import Store
 from archmind.models import Edge, Node, Observation
 
@@ -199,6 +200,82 @@ def test_external_link_is_diagnostic_not_fabricated(tmp_path):
     result = db.analyze(project["id"], build, "")
     assert any("Unresolved linker fragment" in item for item in result["diagnostics"])
     assert db.nodes(result["id"], kind="EXTERNAL_LIBRARY")["items"] == []
+
+
+def test_versioned_shared_library_fragment_and_macro_backtrace():
+    artifacts = {"lib/libosg.so": "osg-id", "lib/libosgDB.so": "osgdb-id"}
+    assert _artifact_for_fragment("lib/libosg.so.3.7.0", artifacts) == "osg-id"
+    assert _artifact_for_fragment("lib/libosgDB.so.3", artifacts) == "osgdb-id"
+    assert _artifact_for_fragment("lib/libosg.so.fake", artifacts) is None
+    assert _artifact_for_fragment("lib/libosgDB.so.3", {"lib/libosg.so": "osg-id"}) is None
+
+    target = {
+        "backtraceGraph": {
+            "files": [
+                "src/osgViewer/CMakeLists.txt",
+                "CMakeModules/OsgMacroUtils.cmake",
+                "src/osg/CMakeLists.txt",
+            ],
+            "commands": ["SETUP_LIBRARY", "LINK_INTERNAL", "TARGET_LINK_LIBRARIES"],
+            "nodes": [
+                {"file": 0},
+                {"file": 0, "line": 280, "command": 0, "parent": 0},
+                {"file": 1, "line": 245, "command": 1, "parent": 1},
+                {"file": 1, "line": 54, "command": 2, "parent": 2},
+                {"file": 2},
+                {"file": 2, "line": 465, "command": 0, "parent": 4},
+                {"file": 1, "line": 54, "command": 2, "parent": 5},
+            ],
+        }
+    }
+    evidence = _local_link_backtrace(target, 3, "src/osgViewer")
+    assert evidence is not None
+    assert evidence[:2] == ("CMakeModules/OsgMacroUtils.cmake", 54)
+    assert "src/osgViewer/CMakeLists.txt:280" in evidence[2]
+    assert _local_link_backtrace(target, 6, "src/osgViewer") is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="ELF versioned .so names are Linux-specific")
+def test_real_cmake_versioned_shared_library_link_through_macro(tmp_path):
+    root = tmp_path / "versioned"
+    (root / "cmake").mkdir(parents=True)
+    (root / "app").mkdir()
+    (root / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(Versioned LANGUAGES CXX)\n"
+        "include(cmake/Link.cmake)\n"
+        "add_library(Core SHARED core.cpp)\n"
+        "set_target_properties(Core PROPERTIES VERSION 2.1 SOVERSION 2)\n"
+        "add_subdirectory(app)\n"
+    )
+    (root / "cmake/Link.cmake").write_text(
+        "macro(link_internal target)\n"
+        "  target_link_libraries(${target} PRIVATE ${ARGN})\n"
+        "endmacro()\n"
+    )
+    (root / "core.cpp").write_text("int core() { return 42; }\n")
+    (root / "app/CMakeLists.txt").write_text(
+        "add_executable(App main.cpp)\nlink_internal(App Core)\n"
+    )
+    (root / "app/main.cpp").write_text("int core(); int main() { return core() == 42 ? 0 : 1; }\n")
+    build = root / "build"
+    (build / ".cmake/api/v1/query").mkdir(parents=True)
+    (build / ".cmake/api/v1/query/codemodel-v2").touch()
+    subprocess.run(
+        ["cmake", "-S", str(root), "-B", str(build), "-G", "Unix Makefiles"],
+        check=True,
+        capture_output=True,
+    )
+    db = Store(tmp_path / "versioned.db")
+    project = db.project_add("Versioned", root)
+    sid = db.analyze(project["id"], build, "")["id"]
+    assert links(db, sid, "App", "LINKS_TO") == {"Core"}
+    app = targets(db, sid)["App"]
+    edge = db.edges(sid, source_id=app["id"], kind="LINKS_TO")["items"][0]
+    evidence = db.evidence(sid, edge["id"])["evidence"][0]
+    assert evidence["file_path"] == "cmake/Link.cmake"
+    assert evidence["line_start"] == 2
+    assert "app/CMakeLists.txt:2" in evidence["description"]
 
 
 def test_failed_api_job_diagnostics(indexed):

@@ -2,7 +2,7 @@
 
 **Architecture intelligence for complex codebases.**
 
-Status: M1/M2 are implemented, an M3 semantic-analysis slice is available, and M4 provides read-only MCP plus opt-in selected-edge AI investigations. These are tested on Linux. Windows CI is configured but has not run. Free-function/call analysis, incremental reindexing and guided refactoring remain planned.
+Status: M1/M2 are implemented, an M3 semantic-analysis slice is available, and M4 provides read-only MCP plus opt-in selected-edge AI investigations. Python and frontend CI run on Linux and Windows; real clang-uml integration runs on Linux. Free-function/call analysis, incremental reindexing and guided refactoring remain planned.
 
 ## Requirements
 
@@ -65,5 +65,7 @@ Use `uv run archmind analyze --project <project-id> --build-dir <project-root>/b
 ## Provenance and limits
 
 CMake codemodel dependencies mean build-order dependencies, not necessarily direct linker relationships. `LINKS_TO` requires a corroborating linker fragment and local backtrace; this may omit static-library links and external/imported libraries. Unknowns remain diagnostics, not invented nodes or links. File API lines are used only when provided. Analysis snapshots are immutable; failed analyses do not replace successful ones. See [ADR 0001](docs/decisions/0001-m1-boundaries.md).
+
+The [OpenSceneGraph real-world check](docs/real-world-openscenegraph.md) documents a pinned upstream checkout, observed graph sizes, verified macro/link evidence and the limits of that validation.
 
 ArchMind is licensed under [Apache-2.0](LICENSE), approved by the owner. The [dependency inventory](docs/LICENSES.md) lists required FOSS tools and release-audit work. See the [implementation specification](IMPLEMENTATION_SPEC.md) for the full roadmap and acceptance criteria.

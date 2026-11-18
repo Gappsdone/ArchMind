@@ -2,6 +2,7 @@
 
 import json
 import posixpath
+import re
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,51 @@ def _backtrace(target: dict, index: int | None) -> tuple[str | None, int | None,
         return file.replace("\\", "/"), entry.get("line"), command
     except (KeyError, IndexError, TypeError):
         return None, None, None
+
+
+def _local_link_backtrace(
+    target: dict, index: int | None, own_dir: str
+) -> tuple[str, int | None, str] | None:
+    """Accept a link command only when its call stack starts in this target's CMakeLists."""
+    file, line, command = _backtrace(target, index)
+    if file is None or command is None or command.lower() != "target_link_libraries":
+        return None
+    graph = target.get("backtraceGraph", {})
+    try:
+        nodes = graph["nodes"]
+        expected = posixpath.normpath(posixpath.join(own_dir, "CMakeLists.txt"))
+        current = index
+        seen = set()
+        root_file = None
+        callsite_line = None
+        while current is not None:
+            if current in seen:
+                return None
+            seen.add(current)
+            entry = nodes[current]
+            root_file = graph["files"][entry["file"]].replace("\\", "/")
+            if root_file == expected and entry.get("line") is not None:
+                callsite_line = entry["line"]
+            current = entry.get("parent")
+        if root_file != expected:
+            return None
+        description = (
+            "Direct linker fragment with target_link_libraries backtrace; visibility unknown"
+        )
+        if callsite_line is not None and expected != file:
+            description += f"; invoked from {expected}:{callsite_line}"
+        return file, line, description
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _artifact_for_fragment(path: str, artifact_to_id: dict[str, str]) -> str | None:
+    """Resolve exact artifacts or ELF versioned names of their .so symlinks."""
+    direct = artifact_to_id.get(path)
+    if direct is not None:
+        return direct
+    versioned = re.fullmatch(r"(.+\.so)\.\d+(?:\.\d+)*", path)
+    return artifact_to_id.get(versioned.group(1)) if versioned else None
 
 
 def extract(
@@ -113,7 +159,8 @@ def extract(
             )
     for cmake_id, (_, detail) in targets.items():
         source_key = by_id[cmake_id]
-        own_dir = detail.get("paths", {}).get("source", ".").replace("\\", "/").strip("./")
+        own_dir = detail.get("paths", {}).get("source", ".").replace("\\", "/").strip("/")
+        dependency_ids = {dep.get("id") for dep in detail.get("dependencies", [])}
         for dep in detail.get("dependencies", []):
             target_key = by_id.get(dep.get("id"))
             if target_key is None:
@@ -140,18 +187,18 @@ def extract(
                 continue
             token = fragment.get("fragment", "").strip().strip('"')
             path = posixpath.normpath(posixpath.join(build_dir, token))
-            dep_id = artifact_to_id.get(path)
-            if dep_id is None or dep_id == cmake_id:
+            dep_id = _artifact_for_fragment(path, artifact_to_id)
+            if dep_id is None or dep_id == cmake_id or dep_id not in dependency_ids:
                 diagnostics.append(f"Unresolved linker fragment {token!r} for {detail.get('name')}")
                 continue
-            file, line, command = _backtrace(detail, fragment.get("backtrace"))
-            file_dir = posixpath.dirname(file) if file else None
-            if command == "target_link_libraries" and file_dir in (own_dir, "."):
+            link_backtrace = _local_link_backtrace(detail, fragment.get("backtrace"), own_dir)
+            if link_backtrace is not None:
+                file, line, description = link_backtrace
                 link_ev = Evidence(
                     "cmake_link",
                     file,
                     line,
-                    "Direct linker fragment with local target_link_libraries backtrace; visibility unknown",
+                    description,
                     "verified",
                 )
                 target_key = by_id[dep_id]
